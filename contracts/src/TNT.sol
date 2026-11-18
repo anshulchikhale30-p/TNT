@@ -59,7 +59,10 @@ contract TNT is ERC721, AccessControl {
         if (user == address(0)) revert InvalidUser();
         
         uint256 tokenId = _nextTokenId++;
-        _safeMint(user, tokenId);
+        // TNTs are non-transferable and do not rely on ERC721 receiver hooks.
+        // Use _mint so a contract recipient cannot reenter and burn the token
+        // before the bookkeeping below runs.
+        _mint(user, tokenId);
         tokenIssuers[tokenId] = msg.sender;
         metadata[tokenId] = TokenMetadata(block.timestamp);
         _tokensByUser[user].push(tokenId);
