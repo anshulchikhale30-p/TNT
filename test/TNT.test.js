@@ -86,7 +86,7 @@ describe("TNT and Factory Contracts", function () {
         const tokenId = 0;
         await expect(
             nonRevokableTnt.connect(owner).revokeToken(tokenId)
-        ).to.be.revertedWith("Token is non-revokable");
+        ).to.be.revertedWithCustomError(nonRevokableTnt, "NotRevokable");
     });
     
     it("should restrict transfers of tokens", async function () {
@@ -96,7 +96,7 @@ describe("TNT and Factory Contracts", function () {
 
         await expect(
             tnt.connect(addr2).transferFrom(addr2.address, addr1.address, tokenId)
-        ).to.be.revertedWith("TNTs are non-transferable");
+        ).to.be.revertedWithCustomError(tnt, "NonTransferable");
     });
 
     it("should allow the admin to grant roles", async function () {
@@ -129,5 +129,26 @@ describe("TNT and Factory Contracts", function () {
     
         expect(tokenOwner).to.equal(addr2.address);
         expect(tokenIssuer).to.equal(addr1.address);
+    });
+
+    it("should not call receiver hooks or leave ghost tokens when issuing to a contract", async function () {
+        await tnt.grantMinterRole(addr1.address);
+
+        const Receiver = await ethers.getContractFactory("ReentrantReceiver");
+        const receiver = await Receiver.deploy(await tnt.getAddress());
+        await receiver.waitForDeployment();
+        const receiverAddress = await receiver.getAddress();
+
+        await tnt.connect(addr1).issueToken(receiverAddress);
+
+        // _mint must not invoke onERC721Received, so the receiver cannot burn
+        // the token before issueToken finishes its bookkeeping.
+        expect(await receiver.callbackCalled()).to.equal(false);
+        expect(await tnt.ownerOf(0)).to.equal(receiverAddress);
+
+        const active = await tnt.getActiveTokens(receiverAddress);
+        expect(Array.from(active.tokenIds)).to.deep.equal([0n]);
+        expect(await tnt.hasActiveTokens(receiverAddress)).to.equal(true);
+        expect(await tnt.getActiveTokenCount(receiverAddress)).to.equal(1n);
     });
 });
